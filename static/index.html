@@ -27,13 +27,14 @@
       </header>
 
       <div id="period-tools" class="period-tools">
-        <div class="period-navigation">
+        <div id="period-navigation" class="period-navigation">
           <button id="previous" class="button icon-button" type="button" aria-label="前の期間">‹</button>
           <div class="period-label"><strong id="range-label">—</strong><span>日本時間</span></div>
           <button id="next" class="button icon-button" type="button" aria-label="次の期間">›</button>
           <button id="today" class="button subtle today" type="button">今日</button>
         </div>
-        <div class="view-toggle" aria-label="表示期間">
+        <div class="view-toggle" role="group" aria-label="表示期間">
+          <button id="all-periods" type="button" aria-pressed="false" hidden>すべて</button>
           <button type="button" data-view="day" aria-pressed="false">日</button>
           <button type="button" data-view="week" aria-pressed="true">週</button>
           <button type="button" data-view="month" aria-pressed="false">月</button>
@@ -54,7 +55,7 @@
       </section>
       <section id="tasks-page" class="panel" hidden>
         <div class="panel-header">
-          <div><h2>すべてのタスク</h2><p id="task-count"></p></div>
+          <div><h2>タスク</h2><p id="task-count"></p></div>
           <div class="list-tools">
             <input id="search" type="search" placeholder="タスクを検索" aria-label="タスクを検索">
             <select id="status-filter" aria-label="ステータスで絞り込む"><option value="">全ステータス</option></select>

@@ -4,7 +4,10 @@ const byId = (id) => document.getElementById(id);
 const elements = Object.fromEntries(
   [...document.querySelectorAll("[id]")].map((element) => [element.id, element]),
 );
-const state = { view: "week", anchor: "", page: "timeline", data: null, editing: null, loading: 0, saving: false };
+const state = {
+  view: "week", anchor: "", page: "timeline", allTasks: true,
+  data: null, editing: null, loading: 0, saving: false,
+};
 const pageNames = { timeline: "タイムライン", tasks: "タスク一覧", stats: "期間統計" };
 const dateKinds = { goal: "目標", plan: "予定", actual: "実績" };
 const dateEdges = { start: "開始", end: "終了" };
@@ -39,6 +42,7 @@ function localDay() {
 
 const calendarDate = (date) => new Date(date + "T00:00:00Z");
 const dayKey = (date) => date.toISOString().slice(0, 10);
+const midnightJst = (date) => Date.parse(date + "T00:00:00+09:00");
 const shortDate = (stamp) => stamp ? stamp.slice(0, 16).replace("T", " ").replaceAll("-", "/") : "—";
 const asHours = (value) => value == null ? "—" : hours.format(value) + " 時間";
 function delta(value, unit = "時間") {
@@ -64,7 +68,11 @@ function dateDelta(actual, baseline) {
 async function api(url, options) {
   const response = await fetch(url, options);
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || "データを取得できませんでした。");
+  if (!response.ok) {
+    const error = new Error(data.error || "データを取得できませんでした。");
+    error.status = response.status;
+    throw error;
+  }
   return data;
 }
 
@@ -110,6 +118,17 @@ function navigatePeriod(direction) {
   if (date.getUTCFullYear() < 1900 || date.getUTCFullYear() > 9998) return;
   state.anchor = dayKey(date);
   void load();
+}
+
+function updatePeriodControls() {
+  const isTaskList = state.page === "tasks";
+  const allPeriods = isTaskList && state.allTasks;
+  elements["period-navigation"].hidden = allPeriods;
+  elements["all-periods"].hidden = !isTaskList;
+  elements["all-periods"].setAttribute("aria-pressed", String(allPeriods));
+  for (const control of document.querySelectorAll("[data-view]")) {
+    control.setAttribute("aria-pressed", String(!allPeriods && control.dataset.view === state.view));
+  }
 }
 
 function paint() {
@@ -180,10 +199,14 @@ function emptyState(title, message, offerCreation = false) {
   return element;
 }
 
+function overlapsPeriod(left, right, start, end) {
+  return left < end && (right > start || (left === start && right === start));
+}
+
 function renderGantt(period, now) {
   const chart = elements.gantt;
-  const start = Date.parse(period.start + "T00:00:00+09:00");
-  const end = Date.parse(period.end + "T00:00:00+09:00");
+  const start = midnightJst(period.start);
+  const end = midnightJst(period.end);
   const span = end - start;
   const isDay = state.view === "day";
   const columns = isDay ? 12 : span / dayLength;
@@ -219,7 +242,7 @@ function renderGantt(period, now) {
     if (!left && !right) return false;
     const a = Date.parse(left || right);
     const b = Date.parse(right || left);
-    if (a >= end || b < start || (b === start && a < start)) return false;
+    if (!overlapsPeriod(a, b, start, end)) return false;
     const min = ((Math.max(a, start) - start) / span) * 100;
     const max = ((Math.min(b, end) - start) / span) * 100;
     const point = a === b;
@@ -293,18 +316,32 @@ function table(headers, rows) {
   return result;
 }
 
+function taskInPeriod(task, start, end) {
+  const ranges = [
+    [task.goal_start, task.goal_end], [task.plan_start, task.plan_end],
+    [task.actual_start, task.actual_end], [task.git?.first_at, task.git?.last_at],
+    ...task.work_intervals,
+  ];
+  return ranges.some(([left, right]) =>
+    overlapsPeriod(Date.parse(left || right), Date.parse(right || left), start, end));
+}
+
 function renderList() {
   const container = elements["task-list"];
+  const { tasks, period } = state.data;
+  const start = midnightJst(period.start);
+  const end = midnightJst(period.end);
   const keyword = elements.search.value.trim().toLocaleLowerCase("ja");
   const status = elements["status-filter"].value;
-  const matches = state.data.tasks.filter((task) => (!status || task.status === status) &&
+  const matches = tasks.filter((task) => (!status || task.status === status) &&
+    (state.allTasks || taskInPeriod(task, start, end)) &&
     (!keyword || [task.title, task.description, task.approach, "#" + task.id, task.git?.ticket || ""]
       .some((field) => field.toLocaleLowerCase("ja").includes(keyword))));
   elements["task-count"].textContent = matches.length + " 件";
   if (!matches.length) {
-    const noTasks = !state.data.tasks.length;
+    const noTasks = !tasks.length;
     container.replaceChildren(emptyState(noTasks ? "タスクがありません" : "一致するタスクがありません",
-      noTasks ? "タスクを作成して進捗を記録できます。" : "検索語やステータスを変更してください。", noTasks));
+      noTasks ? "タスクを作成して進捗を記録できます。" : "期間、検索語、ステータスを変更してください。", noTasks));
     return;
   }
   container.replaceChildren(table(["題名", "ステータス", "予定終了", "実績終了", "実績工数"],
@@ -688,6 +725,19 @@ function confirmResume(task) {
   });
 }
 
+function refreshEditorTask(task) {
+  if (!editor.open || state.editing !== task) return;
+  const updated = state.data.tasks.find((item) => item.id === task.id);
+  if (!updated) return;
+  const draft = formValues();
+  const changed = editedFormFields(draft, task);
+  openEditor(updated);
+  for (const field of changed) {
+    if (dateInputs.has(field)) setDateField(field, draft[field]);
+    else form.elements[field].value = draft[field];
+  }
+}
+
 async function changeStatus(task, status) {
   if (state.saving || resumeConfirmation.open || task.status === status) return;
   const inEditor = editor.open && state.editing === task;
@@ -700,6 +750,7 @@ async function changeStatus(task, status) {
   }
   if (status === "resumed" && !(await confirmResume(task))) return;
 
+  setError(errorPanel, "");
   saving(true);
   try {
     await send("POST", "/api/tasks/" + task.id + "/status", { status, revision: task.revision });
@@ -707,20 +758,15 @@ async function changeStatus(task, status) {
       setError(errorPanel, "ステータスを更新しました。最新の表示を確認するには画面を開き直してください。");
       return;
     }
-    if (inEditor && editor.open) {
-      const draft = formValues();
-      const changed = editedFormFields(draft, task);
-      const updated = state.data.tasks.find((item) => item.id === task.id);
-      openEditor(updated);
-      for (const field of changed) {
-        if (dateInputs.has(field)) setDateField(field, draft[field]);
-        else form.elements[field].value = draft[field];
-      }
-    }
+    if (inEditor) refreshEditorTask(task);
     toast("ステータスを更新しました。");
   } catch (error) {
-    if (!inEditor) await load();
-    setError(errorPanel, error.message);
+    const conflict = error.status === 409;
+    const refreshed = (!inEditor || conflict) && await load();
+    if (inEditor && refreshed) refreshEditorTask(task);
+    setError(errorPanel, conflict && refreshed
+      ? "別の操作でタスクが更新されたため、最新の状態を読み込みました。内容を確認してから、もう一度操作してください。"
+      : error.message);
   } finally {
     saving(false);
   }
@@ -843,8 +889,8 @@ document.querySelectorAll("[data-page]").forEach((item) => {
     for (const page of Object.keys(pageNames)) byId(page + "-page").hidden = page !== state.page;
     elements["page-title"].textContent = pageNames[state.page];
     elements.breadcrumb.textContent = pageNames[state.page];
-    elements["period-tools"].hidden = state.page === "tasks";
     elements.metrics.hidden = state.page === "tasks";
+    updatePeriodControls();
     if (state.data) paint();
     if (state.page === "stats") void load();
   });
@@ -852,12 +898,17 @@ document.querySelectorAll("[data-page]").forEach((item) => {
 
 document.querySelectorAll("[data-view]").forEach((item) => {
   item.addEventListener("click", () => {
+    if (state.page === "tasks") state.allTasks = false;
     state.view = item.dataset.view;
-    for (const control of document.querySelectorAll("[data-view]")) {
-      control.setAttribute("aria-pressed", String(control === item));
-    }
+    updatePeriodControls();
     void load();
   });
+});
+
+elements["all-periods"].addEventListener("click", () => {
+  state.allTasks = true;
+  updatePeriodControls();
+  if (state.data) renderList();
 });
 
 elements["create-task"].addEventListener("click", () => openEditor());
