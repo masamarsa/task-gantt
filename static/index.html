@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#182e29">
+  <title>Task Gantt — タスク進捗管理</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar" aria-label="ワークスペース">
+      <div class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><strong>Task Gantt</strong></div>
+      <nav aria-label="メインメニュー">
+        <button type="button" data-page="timeline" aria-current="page"><span class="nav-icon icon-timeline" aria-hidden="true"></span>タイムライン</button>
+        <button type="button" data-page="tasks"><span class="nav-icon icon-list" aria-hidden="true"></span>タスク一覧</button>
+        <button type="button" data-page="stats"><span class="nav-icon icon-stats" aria-hidden="true"></span>期間統計</button>
+      </nav>
+      <div class="sidebar-footer"><span class="status-dot"></span>個人ワークスペース</div>
+    </aside>
+    <main>
+      <header class="page-header">
+        <div><div class="breadcrumb">ワークスペース <span aria-hidden="true">/</span> <span id="breadcrumb">タイムライン</span></div><h1 id="page-title">タイムライン</h1></div>
+        <button id="create-task" class="button primary" type="button"><span class="plus" aria-hidden="true">+</span> タスクを作成</button>
+      </header>
+
+      <div id="period-tools" class="period-tools">
+        <div class="period-navigation">
+          <button id="previous" class="button icon-button" type="button" aria-label="前の期間">‹</button>
+          <div class="period-label"><strong id="range-label">—</strong><span>日本時間</span></div>
+          <button id="next" class="button icon-button" type="button" aria-label="次の期間">›</button>
+          <button id="today" class="button subtle today" type="button">今日</button>
+        </div>
+        <div class="view-toggle" aria-label="表示期間">
+          <button type="button" data-view="day" aria-pressed="false">日</button>
+          <button type="button" data-view="week" aria-pressed="true">週</button>
+          <button type="button" data-view="month" aria-pressed="false">月</button>
+        </div>
+      </div>
+
+      <p id="page-error" class="error" role="alert" hidden></p>
+      <section id="metrics" class="metrics" aria-label="選択期間の集計"></section>
+      <section id="timeline-page" class="panel">
+        <div class="panel-header">
+          <div><h2>ガントチャート</h2><p>タスクごとの目標、予定、実績を表示</p></div>
+          <div class="legend" aria-label="凡例">
+            <span><i class="goal"></i>目標</span><span><i class="plan"></i>予定</span>
+            <span><i class="actual"></i>実績</span><span><i class="git"></i>Git参考</span>
+          </div>
+        </div>
+        <div id="gantt" class="gantt-scroll" tabindex="0" aria-label="タスクの期間表"></div>
+      </section>
+      <section id="tasks-page" class="panel" hidden>
+        <div class="panel-header">
+          <div><h2>すべてのタスク</h2><p id="task-count"></p></div>
+          <div class="list-tools">
+            <input id="search" type="search" placeholder="タスクを検索" aria-label="タスクを検索">
+            <select id="status-filter" aria-label="ステータスで絞り込む"><option value="">全ステータス</option></select>
+          </div>
+        </div>
+        <div id="task-list" class="table-scroll"></div>
+      </section>
+      <section id="stats-page" class="panel" hidden>
+        <div class="panel-header">
+          <div><h2>実績との差分</h2><p>選択期間内の実績日時と工数から集計</p></div>
+        </div>
+        <div id="statistics" class="statistics"></div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="editor" aria-labelledby="editor-title">
+    <header class="editor-header">
+      <div><div id="editor-meta" class="breadcrumb"></div><h2 id="editor-title">タスクを作成</h2></div>
+      <button id="editor-close" class="button icon-button" type="button" aria-label="閉じる">×</button>
+    </header>
+    <form id="task-form">
+      <div class="editor-content">
+        <p id="form-error" class="error" role="alert" hidden></p>
+        <div id="task-state" class="task-state" hidden></div>
+        <fieldset>
+          <legend>タスク内容</legend>
+          <label>題名 <span class="required">必須</span><input name="title" required maxlength="160"></label>
+          <label>対応内容<textarea name="description" rows="3" maxlength="12000"></textarea></label>
+          <label>対応方針<textarea name="approach" rows="3" maxlength="12000"></textarea></label>
+        </fieldset>
+        <fieldset>
+          <legend>日時 <span class="legend-note">日本時間</span></legend>
+          <div id="date-fields"></div>
+        </fieldset>
+        <fieldset>
+          <legend>工数 <span class="legend-note">時間</span></legend>
+          <div class="field-grid hours-fields">
+            <label>予定工数<input name="plan_hours" type="number" min="0" max="100000" step="0.01" inputmode="decimal"></label>
+            <label>AI予想工数<input name="ai_hours" type="number" min="0" max="100000" step="0.01" inputmode="decimal"></label>
+            <label>実績工数<input name="actual_hours" type="number" min="0" max="100000" step="0.01" inputmode="decimal"></label>
+          </div>
+          <p id="tracked-help" class="helper">空欄の実績工数は作業時間から自動集計します。</p>
+        </fieldset>
+        <section id="task-comparison" class="editor-section" hidden></section>
+        <section id="git-reference" class="editor-section" hidden></section>
+        <section class="editor-section">
+          <h3>GitHub Copilot Agent</h3>
+          <div class="inline-buttons">
+            <button class="button subtle" type="button" data-prompt="create">チケット記入用をコピー</button>
+            <button class="button subtle" type="button" data-prompt="update">チケット更新用をコピー</button>
+          </div>
+        </section>
+      </div>
+      <footer class="editor-footer">
+        <button id="cancel" class="button subtle" type="button">閉じる</button>
+        <button id="save" class="button primary" type="submit">保存</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="date-picker" aria-labelledby="picker-title" aria-describedby="picker-range">
+    <header class="picker-header">
+      <div>
+        <h2 id="picker-title">日時を選択</h2>
+        <p id="picker-range" class="helper" hidden></p>
+      </div>
+      <button id="picker-close" class="button icon-button" type="button" aria-label="閉じる">×</button>
+    </header>
+    <div class="picker-content">
+      <section class="picker-calendar" aria-label="日付">
+        <div class="calendar-navigation">
+          <h3 id="calendar-month" aria-live="polite"></h3>
+          <button id="calendar-today" class="button subtle" type="button">今日</button>
+          <button id="calendar-previous" class="button icon-button" type="button" aria-label="前の月">‹</button>
+          <button id="calendar-next" class="button icon-button" type="button" aria-label="翌月">›</button>
+        </div>
+        <div role="grid" aria-labelledby="calendar-month">
+          <div class="calendar-row calendar-weekdays" role="row">
+            <span role="columnheader">月</span><span role="columnheader">火</span><span role="columnheader">水</span>
+            <span role="columnheader">木</span><span role="columnheader">金</span><span role="columnheader">土</span>
+            <span role="columnheader">日</span>
+          </div>
+          <div id="calendar-days" role="rowgroup"></div>
+        </div>
+      </section>
+      <section class="picker-time" aria-labelledby="picker-time-label">
+        <h3 id="picker-time-label">時刻</h3>
+        <div class="time-wheels">
+          <div>
+            <p id="picker-hour-label">時</p>
+            <div class="time-wheel" id="picker-hour" role="listbox" aria-labelledby="picker-hour-label" tabindex="0"></div>
+          </div>
+          <div>
+            <p id="picker-minute-label">分</p>
+            <div class="time-wheel" id="picker-minute" role="listbox" aria-labelledby="picker-minute-label" tabindex="0"></div>
+          </div>
+        </div>
+      </section>
+    </div>
+    <footer class="picker-footer">
+      <button id="picker-clear" class="button subtle" type="button">未設定にする</button>
+      <button id="picker-cancel" class="button subtle" type="button">キャンセル</button>
+      <button id="picker-apply" class="button primary" type="button">設定</button>
+    </footer>
+  </dialog>
+
+  <dialog id="resume-confirmation" aria-labelledby="resume-title" aria-describedby="resume-task resume-guide">
+    <h2 id="resume-title">タスクを再開しますか？</h2>
+    <p id="resume-task"></p>
+    <p id="resume-guide"></p>
+    <form method="dialog">
+      <button class="button subtle" type="submit" value="cancel" autofocus>キャンセル</button>
+      <button class="button primary" type="submit" value="resume">再開する</button>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>
