@@ -1,0 +1,17 @@
+[Unit]
+Description=Task Gantt
+
+[Service]
+Type=exec
+WorkingDirectory=%h/.local/share/task-gantt
+Environment=TASK_GANTT_HOST=127.0.0.1
+Environment=TASK_GANTT_PORT=8080
+Environment=TASK_GANTT_DB=%h/.local/share/task-gantt/data/tracker.sqlite3
+EnvironmentFile=-%h/.config/task-gantt/environment
+ExecStart=/usr/bin/python3 app.py --port ${TASK_GANTT_PORT}
+UMask=0077
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=default.target

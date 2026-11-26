@@ -16,6 +16,22 @@ python3 app.py
 
 アプリは個人利用を想定しており、既定ではループバックにのみ接続を受け付けます。リモート端末から使う場合も、SSHのローカルポート転送経由で接続できます。外部公開する場合はアプリの前段で認証とHTTPSを設定してください。
 
+### systemd ユーザーサービスで起動
+
+systemd を使用する Linux で、アプリを実行するユーザーとしてリポジトリのルートから実行します。
+
+```sh
+mkdir -p "$HOME/.local/share"
+ln -sT "$(pwd -P)" "$HOME/.local/share/task-gantt"
+install -Dm 0644 systemd/task-gantt.service "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/task-gantt.service"
+systemctl --user daemon-reload
+systemctl --user enable --now task-gantt.service
+```
+
+すでに `~/.local/share/task-gantt` からリポジトリにアクセスできる場合は、`ln` を省略します。サービスはログイン時に起動します。ユーザーの lingering が無効であれば、最後のログアウト後にユーザーマネージャーとともに停止します。
+
+サービスは `TASK_GANTT_HOST` に `127.0.0.1`、`TASK_GANTT_PORT` に `8080`、`TASK_GANTT_DB` に `~/.local/share/task-gantt/data/tracker.sqlite3` を設定します。変更する場合は `~/.config/task-gantt/environment` に `名前=値` の形式で記載し、`systemctl --user restart task-gantt.service` を実行します。DB の変更には絶対パスを指定してください。状態は `systemctl --user status task-gantt.service` で確認できます。
+
 ## タスクとステータス
 
 タスクの「題名」「対応内容」「対応方針」と、目標・予定・実績の開始／終了日時、予定工数・AI予想工数・実績工数を入力できます。日時は日本時間、工数は時間単位です。AI予想工数欄には、Copilotなどで得た見積もりを入力します。

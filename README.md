@@ -16,6 +16,22 @@ Open [http://127.0.0.1:8080](http://127.0.0.1:8080) in your browser. The app cre
 
 The app is designed for personal use and listens on the loopback interface by default. You can access it remotely through SSH local port forwarding. If you expose it publicly, configure authentication and HTTPS in front of the app.
 
+### Run as a systemd user service
+
+On a Linux host with systemd, run the following from the checkout root as the user who will run Task Gantt.
+
+```sh
+mkdir -p "$HOME/.local/share"
+ln -sT "$(pwd -P)" "$HOME/.local/share/task-gantt"
+install -Dm 0644 systemd/task-gantt.service "${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/task-gantt.service"
+systemctl --user daemon-reload
+systemctl --user enable --now task-gantt.service
+```
+
+Skip the `ln` command if the checkout is already available at `~/.local/share/task-gantt`. The user service starts at login. With systemd lingering disabled for the account, it stops when the user manager shuts down after the last logout.
+
+The unit sets `TASK_GANTT_HOST` to `127.0.0.1`, `TASK_GANTT_PORT` to `8080`, and `TASK_GANTT_DB` to `~/.local/share/task-gantt/data/tracker.sqlite3`. To override settings, add `NAME=value` entries to `~/.config/task-gantt/environment` and run `systemctl --user restart task-gantt.service`. Use an absolute path when overriding `TASK_GANTT_DB`. Check status with `systemctl --user status task-gantt.service`.
+
 ## Tasks and statuses
 
 Each task has a title, a description, and an approach. You can enter target, planned, and actual start and end times, as well as planned, AI-estimated, and actual effort. Times use Japan Standard Time (JST), and effort is measured in hours. Enter estimates from tools such as Copilot in the AI estimate field.
