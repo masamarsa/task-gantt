@@ -6,7 +6,7 @@ const elements = Object.fromEntries(
 );
 const state = {
   view: "week", anchor: "", page: "timeline", allTasks: true,
-  data: null, editing: null, loading: 0, saving: false,
+  data: null, editing: null, editorMode: "view", loading: 0, saving: false,
 };
 const pageNames = { timeline: "タイムライン", tasks: "タスク一覧", stats: "期間統計" };
 const dateKinds = { goal: "目標", plan: "予定", actual: "実績" };
@@ -16,6 +16,7 @@ const weekdays = ["日", "月", "火", "水", "木", "金", "土"];
 const form = elements["task-form"];
 const editor = elements.editor;
 const resumeConfirmation = elements["resume-confirmation"];
+const markdownFields = ["description", "approach"];
 const dayLength = 24 * 60 * 60 * 1000;
 
 function node(tag, className = "", text) {
@@ -660,16 +661,82 @@ function showGitReference(task) {
   reference.append(list, node("p", "helper", "コミット日時は参考情報です。開始・終了の実績はフォームで管理します。"));
 }
 
-function openEditor(task = null) {
+function renderDetailValues(list, values) {
+  list.replaceChildren(...values.map(([label, value]) => {
+    const group = node("div");
+    group.append(node("dt", "", label), node("dd", "", value));
+    return group;
+  }));
+}
+
+async function renderTaskMarkdown(task) {
+  const source = {};
+  const errorPanel = elements["task-markdown-error"];
+  setError(errorPanel, "");
+  for (const field of markdownFields) {
+    const output = elements["task-" + field];
+    output.classList.add("markdown-source");
+    output.textContent = task[field] || "未入力";
+    if (task[field]) source[field] = task[field];
+  }
+  if (!Object.keys(source).length) return;
+  const isCurrentView = () => editor.open && state.editing === task && state.editorMode === "view";
+  try {
+    const rendered = await send("POST", "/api/markdown", source);
+    if (!isCurrentView()) return;
+    const fields = Object.keys(source);
+    if (fields.some((field) => typeof rendered[field] !== "string")) {
+      throw new Error("Markdown の取得結果が正しくありません。");
+    }
+    for (const field of fields) {
+      const output = elements["task-" + field];
+      output.classList.remove("markdown-source");
+      // The Markdown endpoint escapes raw HTML and validates link destinations.
+      output.innerHTML = rendered[field];
+    }
+  } catch {
+    if (isCurrentView()) setError(errorPanel, "Markdown を表示できなかったため、入力されたテキストを表示しています。");
+  }
+}
+
+function renderTaskDetails(task) {
+  renderDetailValues(elements["task-view-dates"], [...dateInputs].map(([name, field]) =>
+    [field.label, shortDate(task[name])]));
+  renderDetailValues(elements["task-view-hours"], [
+    ["予定工数", asHours(task.plan_hours)],
+    ["AI予想工数", asHours(task.ai_hours)],
+    ["実績工数", asHours(task.actual_hours ?? (task.actual_start ? task.tracked_hours : null))],
+  ]);
+  void renderTaskMarkdown(task);
+}
+
+function updateMarkdownFields() {
+  for (const field of markdownFields) {
+    const value = form.elements[field].value.trim();
+    const control = elements["edit-" + field];
+    control.dataset.empty = String(!value);
+    control.firstElementChild.textContent = value || "Markdown を入力";
+  }
+}
+
+function openEditor(task = null, mode = task ? "view" : "edit") {
   if (state.saving && !editor.open) return;
   state.editing = task;
+  state.editorMode = mode;
+  const editing = mode === "edit";
   elements["editor-title"].textContent = task ? task.title : "タスクを作成";
   elements["editor-meta"].textContent = task ? "タスク #" + task.id : "";
+  elements["task-view"].hidden = editing;
+  elements["task-edit-fields"].hidden = !editing;
+  elements["edit-task"].hidden = editing;
+  elements.save.hidden = !editing;
+  elements.cancel.textContent = task && editing ? "キャンセル" : "閉じる";
   form.reset();
   for (const name of dateInputs.keys()) setDateField(name, dateValue(task?.[name]));
   setError(elements["form-error"], "");
+  elements["insert-tracked-hours"].hidden = !task?.actual_start;
   elements["tracked-help"].textContent = task?.actual_start
-    ? "保留を除く作業時間 " + asHours(task.tracked_hours) + "。実績工数を入力すると手入力値を集計します。"
+    ? "保存済みの実績日時と保留・再開の記録から計算します。"
     : "空欄の実績工数は作業時間から自動集計します。";
   const statusPanel = elements["task-state"];
   statusPanel.replaceChildren();
@@ -687,9 +754,11 @@ function openEditor(task = null) {
     taskComparison(task);
     showGitReference(task);
   }
+  if (editing) updateMarkdownFields();
+  else renderTaskDetails(task);
   if (!editor.open) editor.showModal();
   editor.querySelector(".editor-content").scrollTop = 0;
-  form.elements.title.focus({ preventScroll: true });
+  (editing ? form.elements.title : elements["editor-title"]).focus({ preventScroll: true });
 }
 
 function formValues() {
@@ -710,7 +779,9 @@ function send(method, url, data) {
 function saving(active) {
   state.saving = active;
   elements.save.disabled = active;
-  for (const control of document.querySelectorAll("#task-state button, .status-select")) control.disabled = active;
+  for (const control of document.querySelectorAll("#task-state button, .status-select, #edit-task, #insert-tracked-hours, .markdown-field")) {
+    control.disabled = active;
+  }
 }
 
 function confirmResume(task) {
@@ -729,12 +800,17 @@ function refreshEditorTask(task) {
   if (!editor.open || state.editing !== task) return;
   const updated = state.data.tasks.find((item) => item.id === task.id);
   if (!updated) return;
-  const draft = formValues();
-  const changed = editedFormFields(draft, task);
-  openEditor(updated);
-  for (const field of changed) {
-    if (dateInputs.has(field)) setDateField(field, draft[field]);
-    else form.elements[field].value = draft[field];
+  if (state.editorMode === "edit") {
+    const draft = formValues();
+    const changed = editedFormFields(draft, task);
+    openEditor(updated, "edit");
+    for (const field of changed) {
+      if (dateInputs.has(field)) setDateField(field, draft[field]);
+      else form.elements[field].value = draft[field];
+    }
+    updateMarkdownFields();
+  } else {
+    openEditor(updated);
   }
 }
 
@@ -744,7 +820,7 @@ async function changeStatus(task, status) {
   const errorPanel = elements[inEditor ? "form-error" : "page-error"];
   const statusField = status === "started" ? "actual_start"
     : status === "finished" || task.status === "finished" ? "actual_end" : "";
-  if (inEditor && editedFormFields(formValues(), task).includes(statusField)) {
+  if (inEditor && state.editorMode === "edit" && editedFormFields(formValues(), task).includes(statusField)) {
     setError(errorPanel, "変更した実績日時を先に保存するか、日時を元に戻してください。");
     return;
   }
@@ -774,22 +850,81 @@ async function changeStatus(task, status) {
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (state.saving) return;
+  if (state.saving || state.editorMode !== "edit") return;
   const task = state.editing;
   const payload = formValues();
   if (task) payload.revision = task.revision;
+  const errorPanel = elements["form-error"];
+  setError(errorPanel, "");
   saving(true);
   try {
     await send(task ? "PUT" : "POST", task ? "/api/tasks/" + task.id : "/api/tasks", payload);
-    editor.close();
-    await load();
+    if (task) {
+      const refreshed = await load();
+      const updated = refreshed && state.data.tasks.find((item) => item.id === task.id);
+      try {
+        openEditor(updated || await api("/api/tasks/" + task.id));
+      } catch {
+        setError(errorPanel, "タスクを保存しました。最新の表示を確認するには画面を開き直してください。");
+        return;
+      }
+    } else {
+      editor.close();
+      await load();
+    }
     toast(task ? "タスクを保存しました。" : "タスクを作成しました。");
   } catch (error) {
-    setError(elements["form-error"], error.message);
+    if (task && error.status === 409 && await load()) {
+      refreshEditorTask(task);
+      setError(errorPanel, "最新のタスクを読み込みました。編集内容を確認してから、もう一度保存してください。");
+    } else {
+      setError(errorPanel, error.message);
+    }
   } finally {
     saving(false);
   }
 });
+
+elements["insert-tracked-hours"].addEventListener("click", async () => {
+  const task = state.editing;
+  if (state.saving || state.editorMode !== "edit" || !task?.actual_start) return;
+  const actualDatesMatch = (saved) => ["actual_start", "actual_end"].every((name) =>
+    dateInputs.get(name).value === dateValue(saved[name]));
+  const errorPanel = elements["form-error"];
+  if (!actualDatesMatch(task)) {
+    setError(errorPanel, "実績日時を保存してから、計測工数を入力してください。");
+    return;
+  }
+  setError(errorPanel, "");
+  saving(true);
+  try {
+    const latest = await api("/api/tasks/" + task.id);
+    if (!actualDatesMatch(latest)) {
+      if (await load()) refreshEditorTask(task);
+      setError(errorPanel, "実績日時が更新されました。日時を確認してから、もう一度操作してください。");
+      return;
+    }
+    const input = form.elements.actual_hours;
+    if (latest.tracked_hours > Number(input.max)) {
+      setError(errorPanel, "計測工数が入力できる上限を超えています。");
+      return;
+    }
+    input.value = latest.tracked_hours;
+    input.focus();
+  } catch (error) {
+    setError(errorPanel, error.message);
+  } finally {
+    saving(false);
+  }
+});
+
+for (const field of markdownFields) {
+  const input = form.elements[field];
+  input.addEventListener("input", updateMarkdownFields);
+  elements["edit-" + field].addEventListener("click", (event) => {
+    openMarkdownEditor(input, elements[field + "-label"].textContent, event.currentTarget);
+  });
+}
 
 function promptText(mode) {
   const fields = formValues();
@@ -912,8 +1047,13 @@ elements["all-periods"].addEventListener("click", () => {
 });
 
 elements["create-task"].addEventListener("click", () => openEditor());
+elements["edit-task"].addEventListener("click", () => openEditor(state.editing, "edit"));
 elements["editor-close"].addEventListener("click", () => { if (!state.saving) editor.close(); });
-elements.cancel.addEventListener("click", () => { if (!state.saving) editor.close(); });
+elements.cancel.addEventListener("click", () => {
+  if (state.saving) return;
+  if (state.editorMode === "edit" && state.editing) openEditor(state.editing);
+  else editor.close();
+});
 editor.addEventListener("cancel", (event) => { if (state.saving) event.preventDefault(); });
 editor.addEventListener("close", () => { elements.toast.hidden = true; });
 elements.previous.addEventListener("click", () => navigatePeriod(-1));

@@ -20,6 +20,9 @@ The app is designed for personal use and listens on the loopback interface by de
 
 Each task has a title, a description, and an approach. You can enter target, planned, and actual start and end times, as well as planned, AI-estimated, and actual effort. Times use Japan Standard Time (JST), and effort is measured in hours. Enter estimates from tools such as Copilot in the AI estimate field.
 
+- Task details open in view mode. Select **Edit (編集)** to make changes and **Save (保存)** to save them and return to the detail view.
+- Select the description or approach field to open its Markdown editor and preview the result. The app supports headings, emphasis, lists, quotes, code, and links.
+- For a task with a saved actual start time, **Insert tracked effort (計測工数を入力)** copies the current tracked value into the actual effort field. Select **Save (保存)** to keep it.
 - **Start (開始)** records the actual start time. **Finish (終了)** records the actual end time.
 - The timer excludes time between **Hold (保留)** and **Resume (再開)**. You can also finish a task while it is on hold.
 - To record past work, enter the actual times manually. Entering a start time marks a new task as started. Entering both times marks it as finished.

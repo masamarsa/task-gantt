@@ -169,6 +169,48 @@ fieldset input, fieldset textarea { font-size: 14px; font-weight: 400; }
 .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 10px; }
 .hours-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .date-field { display: grid; gap: 4px; margin-bottom: 9px; font-size: 12px; font-weight: 650; }
+.detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 0; }
+.detail-grid.hours-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.detail-grid dt { font-size: 12px; color: var(--muted); }
+.detail-grid dd { margin: 3px 0 0; font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; }
+#task-view .markdown-output + h3 { margin-top: 16px; }
+#task-view .markdown-source { white-space: pre-wrap; }
+#task-markdown-error { margin-top: 8px; }
+.markdown-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid #ccd8cc;
+  border-radius: 7px;
+  background: var(--paper);
+  text-align: left;
+  font-size: 14px;
+  font-weight: 400;
+}
+.markdown-field:hover { border-color: var(--green); background: #f5f8f3; }
+.markdown-field[data-empty="true"] { color: var(--muted); }
+.markdown-field::after {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-top: 1.5px solid var(--green);
+  border-right: 1.5px solid var(--green);
+  transform: rotate(45deg);
+}
+.markdown-field-value {
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.effort-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 7px 10px; }
 .date-trigger {
   display: flex;
   align-items: center;

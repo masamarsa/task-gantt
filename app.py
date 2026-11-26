@@ -9,12 +9,15 @@ from urllib.parse import parse_qs
 from wsgiref.simple_server import make_server
 
 import tracker
+from markdown_render import render_markdown
 
 STATIC = Path(__file__).parent / "static"
 ASSETS = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/style.css": ("style.css", "text/css; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/markdown-editor.css": ("markdown-editor.css", "text/css; charset=utf-8"),
+    "/markdown-editor.js": ("markdown-editor.js", "text/javascript; charset=utf-8"),
 }
 MAX_BODY = 262144
 TASK_ROUTE = re.compile(r"/api/tasks(?:/([1-9][0-9]{0,17})(/status)?)?")
@@ -60,12 +63,28 @@ def check_write_origin(environ):
         raise tracker.Invalid("操作はアプリを開いたページから行ってください。")
 
 
+def render_task_markdown(payload):
+    rendered = {}
+    for field in ("description", "approach"):
+        source = payload.get(field, "")
+        limit = tracker.TEXT_FIELDS[field]
+        if not isinstance(source, str) or len(source) > limit:
+            raise tracker.Invalid(f"テキストは{limit:,}文字以内で入力してください。")
+        if any(0xD800 <= ord(character) <= 0xDFFF for character in source):
+            raise tracker.Invalid("入力データの形式が正しくありません。")
+        rendered[field] = render_markdown(source)
+    return rendered
+
+
 def application(environ, start_response):
     path, method = environ["PATH_INFO"], environ["REQUEST_METHOD"]
     if method == "GET" and path in ASSETS:
         name, content_type = ASSETS[path]
         return response(start_response, "200 OK", (STATIC / name).read_bytes(), content_type)
     try:
+        if path == "/api/markdown" and method == "POST":
+            check_write_origin(environ)
+            return json_response(start_response, "200 OK", render_task_markdown(read_payload(environ)))
         if path == "/api/dashboard" and method == "GET":
             query = parse_qs(environ.get("QUERY_STRING", ""))
             payload = tracker.dashboard(query.get("view", ["week"])[0], query.get("date", [None])[0])

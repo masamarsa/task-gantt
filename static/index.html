@@ -7,6 +7,8 @@
   <meta name="theme-color" content="#182e29">
   <title>Task Gantt — タスク進捗管理</title>
   <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/markdown-editor.css">
+  <script src="/markdown-editor.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
@@ -74,32 +76,65 @@
 
   <dialog id="editor" aria-labelledby="editor-title">
     <header class="editor-header">
-      <div><div id="editor-meta" class="breadcrumb"></div><h2 id="editor-title">タスクを作成</h2></div>
+      <div><div id="editor-meta" class="breadcrumb"></div><h2 id="editor-title" tabindex="-1">タスクを作成</h2></div>
       <button id="editor-close" class="button icon-button" type="button" aria-label="閉じる">×</button>
     </header>
     <form id="task-form">
       <div class="editor-content">
         <p id="form-error" class="error" role="alert" hidden></p>
         <div id="task-state" class="task-state" hidden></div>
-        <fieldset>
-          <legend>タスク内容</legend>
-          <label>題名 <span class="required">必須</span><input name="title" required maxlength="160"></label>
-          <label>対応内容<textarea name="description" rows="3" maxlength="12000"></textarea></label>
-          <label>対応方針<textarea name="approach" rows="3" maxlength="12000"></textarea></label>
-        </fieldset>
-        <fieldset>
-          <legend>日時 <span class="legend-note">日本時間</span></legend>
-          <div id="date-fields"></div>
-        </fieldset>
-        <fieldset>
-          <legend>工数 <span class="legend-note">時間</span></legend>
-          <div class="field-grid hours-fields">
-            <label>予定工数<input name="plan_hours" type="number" min="0" max="100000" step="0.01" inputmode="decimal"></label>
-            <label>AI予想工数<input name="ai_hours" type="number" min="0" max="100000" step="0.01" inputmode="decimal"></label>
-            <label>実績工数<input name="actual_hours" type="number" min="0" max="100000" step="0.01" inputmode="decimal"></label>
-          </div>
-          <p id="tracked-help" class="helper">空欄の実績工数は作業時間から自動集計します。</p>
-        </fieldset>
+        <div id="task-view" hidden>
+          <section class="editor-section">
+            <h3>対応内容</h3>
+            <div id="task-description" class="markdown-output"></div>
+            <h3>対応方針</h3>
+            <div id="task-approach" class="markdown-output"></div>
+            <p id="task-markdown-error" class="helper" role="status" hidden></p>
+          </section>
+          <section class="editor-section">
+            <h3>日時 <span class="legend-note">日本時間</span></h3>
+            <dl id="task-view-dates" class="detail-grid"></dl>
+          </section>
+          <section class="editor-section">
+            <h3>工数 <span class="legend-note">時間</span></h3>
+            <dl id="task-view-hours" class="detail-grid hours-fields"></dl>
+          </section>
+        </div>
+        <div id="task-edit-fields" hidden>
+          <fieldset>
+            <legend>タスク内容</legend>
+            <label>題名 <span class="required">必須</span><input name="title" required maxlength="160"></label>
+            <div class="date-field">
+              <span id="description-label">対応内容</span>
+              <textarea name="description" maxlength="12000" hidden></textarea>
+              <button id="edit-description" type="button" class="markdown-field" aria-labelledby="description-label"
+                aria-haspopup="dialog" aria-controls="markdown-editor"><span class="markdown-field-value"></span></button>
+            </div>
+            <div class="date-field">
+              <span id="approach-label">対応方針</span>
+              <textarea name="approach" maxlength="12000" hidden></textarea>
+              <button id="edit-approach" type="button" class="markdown-field" aria-labelledby="approach-label"
+                aria-haspopup="dialog" aria-controls="markdown-editor"><span class="markdown-field-value"></span></button>
+            </div>
+          </fieldset>
+          <fieldset>
+            <legend>日時 <span class="legend-note">日本時間</span></legend>
+            <div id="date-fields"></div>
+          </fieldset>
+          <fieldset>
+            <legend>工数 <span class="legend-note">時間</span></legend>
+            <div class="field-grid hours-fields">
+              <label>予定工数<input name="plan_hours" type="number" min="0" max="100000" step="0.01" inputmode="decimal"></label>
+              <label>AI予想工数<input name="ai_hours" type="number" min="0" max="100000" step="0.01" inputmode="decimal"></label>
+              <label>実績工数<input name="actual_hours" type="number" min="0" max="100000" step="0.01"
+                inputmode="decimal" aria-describedby="tracked-help"></label>
+            </div>
+            <div class="effort-tools">
+              <button id="insert-tracked-hours" class="button subtle" type="button" hidden>計測工数を入力</button>
+              <p id="tracked-help" class="helper"></p>
+            </div>
+          </fieldset>
+        </div>
         <section id="task-comparison" class="editor-section" hidden></section>
         <section id="git-reference" class="editor-section" hidden></section>
         <section class="editor-section">
@@ -112,9 +147,35 @@
       </div>
       <footer class="editor-footer">
         <button id="cancel" class="button subtle" type="button">閉じる</button>
-        <button id="save" class="button primary" type="submit">保存</button>
+        <button id="edit-task" class="button primary" type="button" hidden>編集</button>
+        <button id="save" class="button primary" type="submit" hidden>保存</button>
       </footer>
     </form>
+  </dialog>
+
+  <dialog id="markdown-editor" aria-labelledby="markdown-editor-title">
+    <header class="markdown-editor-header">
+      <h2 id="markdown-editor-title"></h2>
+      <button id="markdown-editor-close" class="button icon-button" type="button" aria-label="閉じる">×</button>
+    </header>
+    <div class="markdown-editor-body">
+      <div class="view-toggle" role="group" aria-label="Markdown エディターの表示切り替え">
+        <button id="markdown-write-tab" type="button" aria-pressed="true">入力</button>
+        <button id="markdown-preview-tab" type="button" aria-pressed="false">プレビュー</button>
+      </div>
+      <div class="markdown-editor-toolbar" role="group" aria-label="書式">
+        <button class="button subtle" type="button" data-markdown-format="bold">太字</button>
+        <button class="button subtle" type="button" data-markdown-format="list">箇条書き</button>
+        <button class="button subtle" type="button" data-markdown-format="code">コード</button>
+      </div>
+      <p id="markdown-editor-error" class="error" role="alert" hidden></p>
+      <textarea id="markdown-editor-text" aria-label="Markdown 本文" maxlength="12000" rows="12"></textarea>
+      <div id="markdown-preview" class="markdown-output" role="region" aria-label="Markdown プレビュー" tabindex="0" hidden></div>
+    </div>
+    <footer class="markdown-editor-footer">
+      <button id="markdown-editor-cancel" class="button subtle" type="button">キャンセル</button>
+      <button id="markdown-editor-apply" class="button primary" type="button">反映する</button>
+    </footer>
   </dialog>
 
   <dialog id="date-picker" aria-labelledby="picker-title" aria-describedby="picker-range">
