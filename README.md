@@ -44,9 +44,11 @@ Each task has a title, a description, and an approach. You can enter target, pla
 - **Start (開始)** records the actual start time. **Finish (終了)** records the actual end time.
 - The timer excludes time between **Hold (保留)** and **Resume (再開)**. You can also finish a task while it is on hold.
 - To record past work, enter the actual times manually. Entering a start time marks a new task as started. Entering both times marks it as finished.
-- A manually entered actual effort value takes precedence. If the field is blank, the app uses tracked work time excluding holds.
+- A manually entered actual effort value takes precedence. Automatic tracking counts Monday to Friday from 09:00–12:00 and 13:00–18:00 JST, excluding Japanese public holidays (including substitute and citizens’ holidays) and time spent on hold.
 - Task details compare actual values with target and planned times, planned effort, and AI-estimated effort. Each difference is the actual value minus its baseline.
 - In the **GitHub Copilot Agent** section, you can copy prompts for drafting or updating a ticket. The prompts include the current form values and instructions for calling the Task Gantt API. The agent can fetch the saved task and incorporate unsaved form edits into its draft. It writes changes back to Task Gantt when you ask it to.
+
+The holiday calendar uses Cabinet Office dates for 1955–2027. Later years follow current law, with equinox estimates through 2050. [Cabinet Office](https://www8.cao.go.jp/chosei/shukujitsu/gaiyou.html) · [National Astronomical Observatory of Japan](https://www.nao.ac.jp/faq/a0301.html)
 
 ## API for AI agents
 

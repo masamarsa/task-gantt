@@ -735,9 +735,6 @@ function openEditor(task = null, mode = task ? "view" : "edit") {
   for (const name of dateInputs.keys()) setDateField(name, dateValue(task?.[name]));
   setError(elements["form-error"], "");
   elements["insert-tracked-hours"].hidden = !task?.actual_start;
-  elements["tracked-help"].textContent = task?.actual_start
-    ? "保存済みの実績日時と保留・再開の記録から計算します。"
-    : "空欄の実績工数は作業時間から自動集計します。";
   const statusPanel = elements["task-state"];
   statusPanel.replaceChildren();
   statusPanel.hidden = !task;

@@ -7,7 +7,12 @@ from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, DecimalException
 from pathlib import Path
 
+from japanese_holidays import is_public_holiday, public_holidays
+
 JST = timezone(timedelta(hours=9))
+JST_EPOCH = datetime(1970, 1, 1, 9, tzinfo=JST)
+WORK_WINDOWS = ((9 * 3600, 12 * 3600), (13 * 3600, 18 * 3600))
+WORKDAY_SECONDS = sum(end - start for start, end in WORK_WINDOWS)
 DATABASE = Path(os.environ.get("TASK_GANTT_DB", Path(__file__).parent / "data/tracker.sqlite3"))
 STATUSES = {"ready": "未開始", "started": "開始", "held": "保留", "resumed": "再開", "finished": "終了"}
 TRANSITIONS = {
@@ -107,10 +112,14 @@ def parse_date(raw):
         raise Invalid("日時を正しい形式で入力してください。") from None
 
 
+def as_jst(stamp):
+    return JST_EPOCH + timedelta(seconds=stamp)
+
+
 def display_date(stamp):
     if stamp is None:
         return None
-    return datetime.fromtimestamp(stamp, JST).isoformat(timespec="seconds")
+    return as_jst(stamp).isoformat(timespec="seconds")
 
 
 def parse_hours(raw):
@@ -320,14 +329,43 @@ def at_midnight(day):
     return int(datetime.combine(day, time.min, JST).timestamp())
 
 
-def serialize_task(task, reference, intervals):
+def working_day_seconds(day, start, end):
+    if day.weekday() >= 5 or is_public_holiday(day):
+        return 0
+    midnight = at_midnight(day)
+    return sum(max(0, min(end, midnight + right) - max(start, midnight + left))
+               for left, right in WORK_WINDOWS)
+
+
+def working_days(start, end):
+    """Count working days in the half-open range without iterating over each day."""
+    weeks, remainder = divmod((end - start).days, 7)
+    weekdays = weeks * 5 + sum((start.weekday() + offset) % 7 < 5 for offset in range(remainder))
+    holidays = sum(start <= holiday < end and holiday.weekday() < 5
+                   for year in range(start.year, end.year + 1) for holiday in public_holidays(year))
+    return weekdays - holidays
+
+
+def working_seconds(start, end):
+    if start >= end:
+        return 0
+    first = as_jst(start).date()
+    last = as_jst(end).date()
+    seconds = working_day_seconds(first, start, end)
+    if first < last:
+        seconds += working_day_seconds(last, start, end)
+        seconds += working_days(first + timedelta(days=1), last) * WORKDAY_SECONDS
+    return seconds
+
+
+def serialize_task(task, reference, intervals, worked_seconds):
     result = task.copy()
     for field in DATE_FIELDS:
         result[field] = display_date(task[field])
     for field in HOUR_FIELDS:
         result[field] = display_hours(task[field])
     result["work_intervals"] = [[display_date(start), display_date(end)] for start, end in intervals]
-    result["tracked_hours"] = round(sum(end - start for start, end in intervals) / 3600, 2)
+    result["tracked_hours"] = round(worked_seconds / 3600, 2)
     if reference:
         result["git"] = dict(reference, first_at=display_date(reference["first_at"]),
                              last_at=display_date(reference["last_at"]))
@@ -344,26 +382,23 @@ def read_task(task_id):
             f"SELECT * FROM events WHERE task_id = ? AND {WORK_EVENT_FILTER} ORDER BY occurred_at, id",
             (task_id,),
         ).fetchall()
-    return serialize_task(task, reference, work_intervals(task, events, now_timestamp()))
+    intervals = work_intervals(task, events, now_timestamp())
+    return serialize_task(task, reference, intervals, sum(working_seconds(*interval) for interval in intervals))
 
 
 def statistics(rows, start, end, now):
     def in_period(stamp):
         return stamp is not None and start <= stamp < end
 
-    def overlap(left, right):
-        return max(0, min(right, end) - max(left, start))
-
     actual = 0.0
     completed = []
     started = 0
-    for task, intervals in rows:
+    for task, intervals, worked in rows:
         if in_period(task["actual_start"]):
             started += 1
         if in_period(task["actual_end"]):
-            completed.append((task, intervals))
-        worked = sum(right - left for left, right in intervals)
-        portion = sum(overlap(left, right) for left, right in intervals)
+            completed.append((task, worked))
+        portion = sum(working_seconds(max(left, start), min(right, end)) for left, right in intervals)
         if task["actual_hours"] is None:
             actual += portion / 3600
         elif worked:
@@ -375,11 +410,11 @@ def statistics(rows, start, end, now):
 
     def compared_hours(key):
         pairs = []
-        for task, intervals in completed:
+        for task, worked in completed:
             if task[key] is None:
                 continue
             measured = (display_hours(task["actual_hours"]) if task["actual_hours"] is not None
-                        else sum(right - left for left, right in intervals) / 3600)
+                        else worked / 3600)
             pairs.append((display_hours(task[key]), measured))
         expected = sum(pair[0] for pair in pairs)
         measured = sum(pair[1] for pair in pairs)
@@ -387,11 +422,11 @@ def statistics(rows, start, end, now):
                 "difference": round(measured - expected, 2)}
 
     def compared_dates(kind, edge):
-        eligible = completed if edge == "end" else [(task, intervals) for task, intervals in rows
-                                                     if in_period(task["actual_start"])]
+        eligible = ((task for task, _ in completed) if edge == "end"
+                    else (task for task, _, _ in rows if in_period(task["actual_start"])))
         key = f"{kind}_{edge}"
         differences = [
-            task[f"actual_{edge}"] - task[key] for task, _ in eligible if task[key] is not None
+            task[f"actual_{edge}"] - task[key] for task in eligible if task[key] is not None
         ]
         return {
             "count": len(differences), "late": sum(delta > 0 for delta in differences),
@@ -400,7 +435,7 @@ def statistics(rows, start, end, now):
 
     return {
         "started": started, "finished": len(completed), "actual_hours": round(actual, 2),
-        "open": sum(task["actual_end"] is None for task, _ in rows),
+        "open": sum(task["actual_end"] is None for task, _, _ in rows),
         "plan": compared_hours("plan_hours"), "ai": compared_hours("ai_hours"),
         "dates": {f"{kind}_{edge}": compared_dates(kind, edge)
                   for kind in ("goal", "plan") for edge in ("start", "end")},
@@ -425,9 +460,14 @@ def dashboard(view, raw_date):
         ):
             events.setdefault(row["task_id"], []).append(row)
     now = now_timestamp()
-    rows = [(task, work_intervals(task, events.get(task["id"], ()), now)) for task in tasks]
+    rows = []
+    for task in tasks:
+        intervals = work_intervals(task, events.get(task["id"], ()), now)
+        worked = sum(working_seconds(*interval) for interval in intervals)
+        rows.append((task, intervals, worked))
     summary = statistics(rows, at_midnight(start), at_midnight(end), now)
-    result_tasks = [serialize_task(task, references.get(task["id"]), intervals) for task, intervals in rows]
+    result_tasks = [serialize_task(task, references.get(task["id"]), intervals, worked)
+                    for task, intervals, worked in rows]
     return {
         "tasks": result_tasks, "statuses": STATUSES, "transitions": TRANSITIONS,
         "summary": summary, "period": {"anchor": str(anchor), "start": str(start), "end": str(end)},
