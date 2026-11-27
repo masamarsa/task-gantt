@@ -32,6 +32,8 @@ Skip the `ln` command if the checkout is already available at `~/.local/share/ta
 
 The unit sets `TASK_GANTT_HOST` to `127.0.0.1`, `TASK_GANTT_PORT` to `8080`, and `TASK_GANTT_DB` to `~/.local/share/task-gantt/data/tracker.sqlite3`. To override settings, add `NAME=value` entries to `~/.config/task-gantt/environment` and run `systemctl --user restart task-gantt.service`. Use an absolute path when overriding `TASK_GANTT_DB`. Check status with `systemctl --user status task-gantt.service`.
 
+After updating the checkout, run `systemctl --user restart task-gantt.service`. The running process reads HTML from disk and keeps the Python routes loaded at startup, so new assets such as `markdown-editor.js` and `markdown-editor.css` can return `404` until you restart the service.
+
 ## Tasks and statuses
 
 Each task has a title, a description, and an approach. You can enter target, planned, and actual start and end times, as well as planned, AI-estimated, and actual effort. Times use Japan Standard Time (JST), and effort is measured in hours. Enter estimates from tools such as Copilot in the AI estimate field.

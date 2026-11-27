@@ -32,6 +32,8 @@ systemctl --user enable --now task-gantt.service
 
 サービスは `TASK_GANTT_HOST` に `127.0.0.1`、`TASK_GANTT_PORT` に `8080`、`TASK_GANTT_DB` に `~/.local/share/task-gantt/data/tracker.sqlite3` を設定します。変更する場合は `~/.config/task-gantt/environment` に `名前=値` の形式で記載し、`systemctl --user restart task-gantt.service` を実行します。DB の変更には絶対パスを指定してください。状態は `systemctl --user status task-gantt.service` で確認できます。
 
+リポジトリを更新した後は `systemctl --user restart task-gantt.service` を実行します。実行中のプロセスは HTML をファイルから読み込みますが、Python の配信ルートは起動時のものを使います。再起動するまでは `markdown-editor.js` や `markdown-editor.css` など、新しく追加されたファイルが `404` になる場合があります。
+
 ## タスクとステータス
 
 タスクの「題名」「対応内容」「対応方針」と、目標・予定・実績の開始／終了日時、予定工数・AI予想工数・実績工数を入力できます。日時は日本時間、工数は時間単位です。AI予想工数欄には、Copilotなどで得た見積もりを入力します。
