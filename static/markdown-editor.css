@@ -84,7 +84,7 @@
 .markdown-output h1 { font-size: 1.4em; }
 .markdown-output h2 { font-size: 1.24em; }
 .markdown-output :is(h3, h4, h5, h6) { font-size: 1.08em; }
-.markdown-output :is(p, ul, ol, pre, blockquote) { margin: 0 0 .75em; }
+.markdown-output :is(p, ul, ol, pre, blockquote, .markdown-table) { margin: 0 0 .75em; }
 .markdown-output :is(ul, ol) { padding-inline-start: 1.7em; }
 .markdown-output li > :is(ul, ol), .markdown-output > :last-child { margin-bottom: 0; }
 .markdown-output a { color: var(--green); text-underline-offset: 2px; }
@@ -106,3 +106,10 @@
 }
 
 .markdown-output hr { border: 0; border-top: 1px solid var(--line); margin: .85em 0; }
+.markdown-table { overflow-x: auto; }
+.markdown-table table { width: max-content; }
+.markdown-table :is(th, td) { border: 1px solid var(--line); padding: .4em .65em; }
+.markdown-table td { max-width: 32ch; }
+.markdown-table .align-left { text-align: left; }
+.markdown-table .align-center { text-align: center; }
+.markdown-table .align-right { text-align: right; }

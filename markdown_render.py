@@ -11,6 +11,9 @@ HEADING = re.compile(r"^ {0,3}(#{1,6})(?:[ \t]+(.*)|$)")
 RULE = re.compile(r"^ {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$")
 QUOTE = re.compile(r"^ {0,3}>[ \t]?(.*)$")
 LIST_ITEM = re.compile(r"^(?P<indent> {0,3})(?:(?P<number>[0-9]{1,9})[.)]|[-+*])[ \t]+(?P<body>.*)$")
+TABLE_TOKEN = re.compile(r"\\.|\|")
+TABLE_DELIMITER = re.compile(r":?-+:?")
+BLOCK_START = (FENCE, HEADING, RULE, QUOTE, LIST_ITEM)
 INLINE = re.compile(
     rf"\\(?P<escaped>[{re.escape(punctuation)}])"
     r"|(?<!`)(?P<ticks>`+)(?!`)(?P<code>.*?)(?<!`)(?P=ticks)(?!`)"
@@ -112,6 +115,71 @@ def render_list(lines, index, first, depth):
     return "\n".join(items), index
 
 
+def table_row(line):
+    if line.startswith(("    ", "\t")):
+        return None
+    line = line.strip()
+    cells = []
+    start = 0
+    for token in TABLE_TOKEN.finditer(line):
+        if token[0] == "|":
+            cells.append(line[start:token.start()])
+            start = token.end()
+    if not cells:
+        return None
+    if line.startswith("|"):
+        cells = cells[1:]
+    if start < len(line):
+        cells.append(line[start:])
+    return [cell.strip() for cell in cells] or None
+
+
+def table_heading(lines, index):
+    if index + 1 >= len(lines) or not (header := table_row(lines[index])):
+        return None
+    delimiters = table_row(lines[index + 1])
+    if not delimiters or len(header) != len(delimiters) or not all(map(TABLE_DELIMITER.fullmatch, delimiters)):
+        return None
+    return header, delimiters
+
+
+def render_table(lines, index, header, delimiters):
+    alignments = []
+    for delimiter in delimiters:
+        if delimiter.startswith(":"):
+            alignments.append("center" if delimiter.endswith(":") else "left")
+        else:
+            alignments.append("right" if delimiter.endswith(":") else "")
+
+    def render_row(cells, tag):
+        items = []
+        for cell, alignment in zip(cells, alignments):
+            attrs = ' scope="col"' if tag == "th" else ""
+            if alignment:
+                attrs += f' class="align-{alignment}"'
+            # Pipes are escaped at the table level, even inside inline code.
+            items.append(f"<{tag}{attrs}>{render_inline(cell.replace(r'\|', '|'))}</{tag}>")
+        missing = len(header) - len(items)
+        if missing:
+            attrs = f' colspan="{missing}"' if missing > 1 else ""
+            items.append(f"<td{attrs}></td>")
+        return "<tr>" + "".join(items) + "</tr>"
+
+    rows = ["<table><thead>", render_row(header, "th"), "</thead>"]
+    index += 2
+    body = []
+    while index < len(lines) and not any(pattern.match(lines[index]) for pattern in BLOCK_START):
+        cells = table_row(lines[index])
+        if not cells:
+            break
+        body.append(render_row(cells, "td"))
+        index += 1
+    if body:
+        rows.extend(["<tbody>", *body, "</tbody>"])
+    rows.append("</table>")
+    return '<div class="markdown-table">' + "\n".join(rows) + "</div>", index
+
+
 def render_blocks(lines, depth=0):
     if depth >= 16:
         return "<p>" + "<br>\n".join(escape(line) for line in lines) + "</p>"
@@ -152,12 +220,16 @@ def render_blocks(lines, depth=0):
         elif item := LIST_ITEM.match(line):
             rendered, index = render_list(lines, index, item, depth)
             blocks.append(rendered)
+        elif table := table_heading(lines, index):
+            rendered, index = render_table(lines, index, *table)
+            blocks.append(rendered)
         else:
             paragraph = [render_inline(line)]
             index += 1
             while index < len(lines):
                 line = lines[index]
-                if not line.strip() or any(pattern.match(line) for pattern in (FENCE, HEADING, RULE, QUOTE, LIST_ITEM)):
+                if (not line.strip() or any(pattern.match(line) for pattern in BLOCK_START)
+                        or table_heading(lines, index)):
                     break
                 paragraph.append(render_inline(line))
                 index += 1
